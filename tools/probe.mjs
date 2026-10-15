@@ -108,15 +108,23 @@ async function main() {
     }
   };
 
-  const url = origin + '/?demo=1';
+  const url = (BASE ? BASE.replace(/\/+$/, '') : origin) + '/?demo=1';
   console.log('probe url:', url);
   await goto(url);
-  await sleep(1200);
-
-  // catch console errors + failed requests
-  // (Runtime.consoleAPICalled would need events; poll __game.errors instead + console via log)
-  let g = await evalJs('window.__game ? JSON.parse(document.getElementById("report").textContent) : null');
-  check('page booted, report present', !!g, g ? 'state=' + g.state : 'no report');
+  // over a network the 2.1MB three vendor can take longer than any fixed sleep:
+  // poll until the game object exists (up to 90s), then for the report element.
+  const waitFor = async (expr, ms) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      const ok = await evalJs(expr).catch(() => null);
+      if (ok) return true;
+      await sleep(300);
+    }
+    return false;
+  };
+  const gameUp = await waitFor('!!(window.__game && document.getElementById("report") && document.getElementById("report").textContent.length > 10)', 90000);
+  check('page booted, report present', gameUp === true, gameUp ? 'ready' : 'timeout');
+  let g = gameUp ? await evalJs('JSON.parse(document.getElementById("report").textContent)') : null;
   check('zero boot errors', !g || (g.errors || []).length === 0, JSON.stringify((g || {}).errors || []).slice(0, 200));
 
   // boot overlay + FIGHT button
