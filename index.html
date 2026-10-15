@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CATFIGHT.EXCHANGE — two cats, one coin</title>
+<meta name="description" content="Two cats fight over the live Bitcoin price. 3D arena duel.">
+<style>
+/* ============ fonts (bundled, no CDN) ============ */
+@font-face { font-family:'Archivo'; src:url('./fonts/archivo-var.woff2') format('woff2'); font-weight:100 900; font-style:normal; font-display:swap; }
+@font-face { font-family:'Numo'; src:url('./fonts/jetbrainsmono-var.woff2') format('woff2'); font-weight:100 900; font-style:normal; font-display:swap; }
+
+/* ============ tokens ============ */
+:root{
+  --bg:#0e0f12;            /* arena void */
+  --ink:#e8e6df;           /* off-white text */
+  --ink-dim:#b3b0a4;       /* dim text (5.9:1 on bg) */
+  --line:rgba(232,230,223,.08);
+  --panel:rgba(14,15,18,.72);
+  --ember:#ff5a1f;         /* ONE brand accent */
+  --ember-deep:#b23a0e;
+  --up:#35d07f;            /* semantic: price up */
+  --down:#e5484d;          /* semantic: price down */
+  --gold:#f0b429;          /* the coin */
+  --r:10px;                /* ONE radius */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-6:24px; --sp-8:32px;
+}
+*{ margin:0; padding:0; box-sizing:border-box; }
+html,body{ height:100%; overflow:hidden; }
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:'Archivo',sans-serif; font-size:16px; line-height:1.5;
+  -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;
+}
+canvas#gl{ position:fixed; inset:0; width:100%; height:100%; display:block; }
+
+/* ============ HUD ============ */
+#hud{ position:fixed; inset:0; pointer-events:none; display:flex; flex-direction:column; }
+.mono{ font-family:'Numo',monospace; font-variant-numeric:tabular-nums; }
+
+/* --- top price strip --- */
+#strip{
+  display:flex; align-items:center; justify-content:center; gap:var(--sp-4);
+  padding:var(--sp-2) var(--sp-4);
+}
+#strip .card{
+  background:var(--panel); border:1px solid var(--line); border-radius:var(--r);
+  padding:var(--sp-2) var(--sp-4); backdrop-filter:blur(8px);
+}
+#price{ font-size:28px; font-weight:700; letter-spacing:-.02em; line-height:1.1; }
+#price.up{ color:var(--up); } #price.down{ color:var(--down); }
+#p24{ font-size:14px; color:var(--ink-dim); }
+#p24.up{ color:var(--up); } #p24.down{ color:var(--down); }
+#src{ font-size:12px; color:var(--ink-dim); display:flex; align-items:center; gap:var(--sp-2); }
+#dot{ width:8px; height:8px; border-radius:50%; background:var(--ink-dim); }
+#dot.live{ background:var(--up); box-shadow:0 0 0 3px rgba(53,208,127,.15); }
+#dot.replay{ background:var(--ember); box-shadow:0 0 0 3px rgba(255,90,31,.15); }
+#dot.dead{ background:var(--down); }
+
+/* --- hp blocks --- */
+#fighters{
+  display:flex; justify-content:space-between; align-items:flex-start;
+  padding:0 var(--sp-4); gap:var(--sp-4);
+}
+.hp{ width:min(300px,38vw); }
+.hp .name{ font-size:12px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-dim); margin-bottom:var(--sp-1); display:flex; justify-content:space-between; }
+.hp .name b{ color:var(--ink); }
+.hp .bar{ height:10px; border-radius:6px; background:rgba(232,230,223,.10); border:1px solid var(--line); overflow:hidden; }
+.hp .fill{ height:100%; border-radius:5px; background:var(--ink); transition:width .18s ease-out; }
+.hp .fill.low{ background:var(--down); }
+#hpB .name{ flex-direction:row-reverse; }
+
+/* --- bottom: score + verbs + super --- */
+#bottom{
+  margin-top:auto; display:flex; flex-direction:column; align-items:center; gap:var(--sp-2);
+  padding:var(--sp-3) var(--sp-4) var(--sp-4);
+}
+#coins{ display:flex; gap:var(--sp-4); font-size:16px; color:var(--ink); }
+#coins .c{ display:flex; align-items:center; gap:6px; }
+#coins .btc{ font-size:18px; color:var(--gold); font-weight:700; }
+#coins .btc.dim{ color:rgba(232,230,223,.28); }
+#coins .c span:last-child{ color:var(--ink-dim); }
+#superWrap{ width:min(280px,60vw); }
+#superWrap .lbl{ font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-dim); margin-bottom:var(--sp-1); }
+#superBar{ height:6px; border-radius:3px; background:rgba(232,230,223,.10); overflow:hidden; }
+#superFill{ height:100%; width:0%; background:var(--ember); border-radius:3px; transition:width .18s ease-out; }
+#superBar.full #superFill{ animation:superPulse 1s ease-in-out infinite; }
+@keyframes superPulse{ 50%{ opacity:.55; } }
+#verbs{ font-size:14px; color:var(--ink-dim); letter-spacing:.06em; }
+#verbs b{ color:var(--ink); font-weight:600; }
+
+/* --- sound toggle --- */
+#sndBtn{
+  position:fixed; top:var(--sp-3); right:var(--sp-3); pointer-events:auto;
+  width:44px; height:44px; display:flex; align-items:center; justify-content:center;
+  background:var(--panel); border:1px solid var(--line); border-radius:var(--r); color:var(--ink-dim);
+  cursor:pointer;
+}
+#sndBtn svg{ width:18px; height:18px; }
+#sndBtn.on{ color:var(--ember); }
+
+/* ============ overlays ============ */
+.overlay{
+  position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  background:rgba(14,15,18,.86); backdrop-filter:blur(10px);
+  pointer-events:auto; text-align:center; padding:var(--sp-6);
+  transition:opacity .25s ease-out;
+}
+.overlay.hidden{ opacity:0; pointer-events:none; }
+.kicker{ font-size:12px; letter-spacing:.28em; text-transform:uppercase; color:var(--ember); font-weight:600; }
+h1{
+  font-size:clamp(40px,9vw,56px); font-weight:700; letter-spacing:-.03em; line-height:1.05;
+  margin:var(--sp-3) 0 var(--sp-1); max-width:1100px;
+}
+h1 .x{ color:var(--ember); }
+.sub{ font-size:16px; color:var(--ink-dim); max-width:46ch; }
+.sub .up{ color:var(--up); } .sub .down{ color:var(--down); }
+#feedStatus{ font-size:12px; color:var(--ink-dim); margin-top:var(--sp-6); }
+.bigbtn{
+  margin-top:var(--sp-6); pointer-events:auto; cursor:pointer;
+  font-family:'Archivo',sans-serif; font-size:16px; font-weight:600; letter-spacing:.06em;
+  color:var(--bg); background:var(--ember);
+  border:none; border-radius:var(--r); padding:var(--sp-3) var(--sp-8);
+  min-height:44px;
+}
+.bigbtn:active{ transform:scale(.97); }
+.hintline{ margin-top:var(--sp-3); font-size:12px; color:var(--ink-dim); }
+
+/* KO banner */
+#banner .ko{
+  font-size:clamp(40px,11vw,56px); font-weight:700; letter-spacing:-.02em; line-height:1.1;
+}
+#banner .ko.win{ color:var(--up); }
+#banner .ko.lose{ color:var(--down); }
+#banner .snap{ font-size:20px; color:var(--ink-dim); margin-top:var(--sp-2); }
+#banner .snap b{ color:var(--gold); font-weight:600; }
+
+/* ============ report (hidden, machine) ============ */
+#report{ display:none; }
+
+@media (max-width:640px){
+  #price{ font-size:20px; }
+  #strip{ gap:var(--sp-2); padding:var(--sp-2); }
+  #strip .card{ padding:var(--sp-1) var(--sp-3); }
+  .hp{ width:34vw; }
+}
+@media (prefers-reduced-motion:reduce){
+  *{ transition-duration:0s !important; animation:none !important; }
+}
+</style>
+</head>
+<body data-state="boot">
+
+<canvas id="gl"></canvas>
+
+<div id="hud">
+  <div id="strip">
+    <div class="card">
+      <div id="price" class="mono">—</div>
+    </div>
+    <div class="card" id="p24card">
+      <div id="p24" class="mono">—</div>
+    </div>
+    <div class="card">
+      <div id="src"><span id="dot"></span><span id="srcName">CONNECTING</span></div>
+    </div>
+  </div>
+  <div id="fighters">
+    <div class="hp" id="hpA">
+      <div class="name"><b>BULL CAT</b><span>YOU</span></div>
+      <div class="bar"><div class="fill" id="fillA"></div></div>
+    </div>
+    <div class="hp" id="hpB">
+      <div class="name"><b>BEAR CAT</b><span id="roundTag">R1</span></div>
+      <div class="bar"><div class="fill" id="fillB"></div></div>
+    </div>
+  </div>
+  <div id="bottom">
+    <div id="coins" class="mono">
+      <span class="c" id="coinsA"><span class="btc">₿</span><span id="scoreA">0</span></span>
+      <span class="c" id="coinsB"><span class="btc dim">₿</span><span id="scoreB">0</span></span>
+    </div>
+    <div id="superWrap">
+      <div class="lbl">super pounce</div>
+      <div id="superBar"><div id="superFill"></div></div>
+    </div>
+    <div id="verbs"><b>TAP</b> swipe &nbsp;·&nbsp; <b>HOLD</b> pounce</div>
+  </div>
+</div>
+
+<button id="sndBtn" class="on" title="sound">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+</button>
+
+<div class="overlay" id="boot">
+  <div class="kicker">live btc arena · round 1</div>
+  <h1>CATFIGHT<span class="x">.</span>EXCHANGE</h1>
+  <p class="sub">Two cats. One coin. Every real <span class="up">BTC</span> tick feeds the beast:
+  upticks charge your pounce, downticks make the bear mean. KO the other cat and take the coin.</p>
+  <div id="feedStatus">connecting to the market…</div>
+  <button class="bigbtn" id="fightBtn">FIGHT</button>
+  <div class="hintline">tap = swipe · hold = pounce · drag = orbit camera</div>
+</div>
+
+<div class="overlay hidden" id="banner">
+  <div class="kicker" id="bannerKicker">round 1 over</div>
+  <div class="ko" id="bannerKo">KO</div>
+  <div class="snap" id="bannerSnap">coin claimed @ <b class="mono">$—</b></div>
+  <button class="bigbtn" id="nextBtn">NEXT ROUND</button>
+</div>
+
+<div id="report"></div>
+
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<script type="module" src="./js/game.js"></script>
+</body>
+</html>
